@@ -33,7 +33,8 @@ public class StopWordService {
             Pattern.compile("([уy])([ёеe])б[и|к|о]"),
             Pattern.compile("[e|e|ё]б[a|a|е|e|ё][л|т|н]"),
             Pattern.compile("г[а|о][в|м]н[о|ю|a|е|и]"),
-            Pattern.compile("г[а|о][в|м]н[о|ю|a|е|и]")
+            Pattern.compile("г[а|о][в|м]н[о|ю|a|е|и]"),
+            Pattern.compile("([хx])([рp])([еe])н")
     );
 
     public boolean isContainsObsceneWords(final String message) {
