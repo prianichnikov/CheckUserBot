@@ -1,6 +1,5 @@
 package info.prianichnikov.telegram.bot.checkuserbot.service;
 
-
 import java.util.*;
 import java.util.regex.Pattern;
 
@@ -8,10 +7,7 @@ public class StopWordService {
 
     private final List<Pattern> obsceneWordsRU = Arrays.asList(
             Pattern.compile("[б|6]ля"),
-            Pattern.compile("ш([аa])л([аa])в"),
-            Pattern.compile("шлю[х|ш]"),
-            Pattern.compile("^([хx])([уy])[й|(ли)|е|e|ё|и|я|ю]"),
-            Pattern.compile("пи([з3])д"),
+            Pattern.compile("п[ие]([з3])д"),
             Pattern.compile("з([аa])[е|ё]б"),
             Pattern.compile("([хx])([еe])([рp])"),
             Pattern.compile("([мm])([уyu])([дd])([аa])([кkг])"),
@@ -30,7 +26,14 @@ public class StopWordService {
             Pattern.compile("д([оo])лб([оo])([еeё])?б?"),
             Pattern.compile("д([рp])([оo])ч[ие]?т?ь?"),
             Pattern.compile("пи([сc])ь([кk])([аaоo])?"),
-            Pattern.compile("пи([сc])([юя])")
+            Pattern.compile("пи([сc])([юя])"),
+            Pattern.compile("ш([аa])л([аa])в"),
+            Pattern.compile("шлю[х|ш]"),
+            Pattern.compile("([хx])([уy])[й|(ли)|е|e|ё|и|я|ю]"),
+            Pattern.compile("([уy])([ёеe])б[и|к|о]"),
+            Pattern.compile("[e|e|ё]б[a|a|е|e|ё][л|т|н]"),
+            Pattern.compile("г[а|о][в|м]н[о|ю|a|е|и]"),
+            Pattern.compile("г[а|о][в|м]н[о|ю|a|е|и]")
     );
 
     public boolean isContainsObsceneWords(final String message) {

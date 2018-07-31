@@ -41,9 +41,6 @@
                     <execution>
                         <id>copy-resources</id>
                         <phase>validate</phase>
-                        <!--<goals>-->
-                            <!--<goal>copy-resources</goal>-->
-                        <!--</goals>-->
                         <configuration>
                             <outputDirectory>${basedir}/target/classes</outputDirectory>
                         </configuration>

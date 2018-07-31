@@ -9,21 +9,24 @@
                 <pattern>%d %p %c{1.} %m%n</pattern>
             </PatternLayout>
         </Console>
-        <File name="FileAppender" filename="${filename}">
-            <PatternLayout>
-                <pattern>%d %p %c{1.} %m%n</pattern>
-            </PatternLayout>
-        </File>
-        <Async name="AsyncAppender">
-            <AppenderRef ref="FileAppender"/>
+        <!--<File name="FileAppender" filename="${filename}">-->
+            <!--<PatternLayout>-->
+                <!--<pattern>%d %p %c{1.} %m%n</pattern>-->
+            <!--</PatternLayout>-->
+        <!--</File>-->
+        <!--<Async name="AsyncFileAppender">-->
+            <!--<AppenderRef ref="FileAppender"/>-->
+        <!--</Async>-->
+        <Async name="AsyncConsoleAppender">
+            <AppenderRef ref="ConsoleAppender"/>
         </Async>
     </Appenders>
     <Loggers>
-        <Logger name="info.prianichnikov.telegram.bot.checkuserbot.CheckUserBotApplication" level="INFO">
-            <AppenderRef ref="ConsoleAppender"/>
-        </Logger>
+        <!--<Logger name="info.prianichnikov.telegram.bot.checkuserbot.CheckUserBotApplication" level="INFO">-->
+            <!--<AppenderRef ref="ConsoleAppender"/>-->
+        <!--</Logger>-->
         <Root level="info">
-            <AppenderRef ref="AsyncAppender"/>
+            <AppenderRef ref="AsyncConsoleAppender"/>
         </Root>
     </Loggers>
 </Configuration>

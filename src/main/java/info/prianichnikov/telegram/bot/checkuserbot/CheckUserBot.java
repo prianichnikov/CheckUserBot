@@ -21,42 +21,48 @@ public class CheckUserBot extends TelegramLongPollingBot {
     private final StopWordService stopWordService = new StopWordService();
     private Map<String, Integer> userCounts = new HashMap<>();
 
+    public void checkEnvironmentVariables() throws TelegramApiException {
+        if (getBotToken() == null || getBotToken().isEmpty()) {
+            throw new TelegramApiException("Bot token cannot be null or empty");
+        }
+    }
+
+    @Override
     public String getBotUsername() {
-        return "CheckUserBot";
+        return System.getenv("BOT_NAME");
     }
 
     @Override
     public String getBotToken() {
-        return "603741233:AAHBcCatjQZmd7j75xJ08KfF2OsxGtjss94";
+        return System.getenv("BOT_TOKEN");
     }
 
     public void onUpdateReceived(Update update) {
-        if (update.getMessage() == null || !update.getMessage().hasText()) {
-            LOG.warn("Empty message");
-            return;
+        if (update.getMessage() != null) {
+            checkObsceneWords(update.getMessage());
+        } else if (update.getEditedMessage() != null) {
+            checkObsceneWords(update.getEditedMessage());
         }
-        checkObsceneWords(update.getMessage());
     }
 
     private void checkObsceneWords(final Message message) {
         final String userKey = message.getFrom().getId().toString().concat(message.getChatId().toString());
         if (stopWordService.isContainsObsceneWords(message.getText())) {
-            if (isUserHasAttempt(userKey)) {
+//            if (isUserHasAttempt(userKey)) {
 //                increaseCounter(userKey);
-//                try {
-//                    execute(prepareWarningMessage(message, "No obscene words on this group!"));
-//                } catch (TelegramApiException e) {
-//                    LOG.error("Cannot send message", e);
-//                }
-            writeToLog(message.getText());
-            } else {
                 try {
-                    execute(prepareRestrictUserAction(message));
-                    execute(prepareWarningMessage(message, "Your rights was limited to read-only!"));
+                    execute(prepareWarningMessage(message, "No obscene words in this group!"));
                 } catch (TelegramApiException e) {
                     LOG.error("Cannot send message", e);
                 }
-            }
+//            } else {
+//                try {
+//                    execute(prepareRestrictUserAction(message));
+//                    execute(prepareWarningMessage(message, "Your rights was limited to read-only!"));
+//                } catch (TelegramApiException e) {
+//                    LOG.error("Cannot send message", e);
+//                }
+//            }
         }
     }
 
