@@ -3,9 +3,9 @@ package info.prianichnikov.telegram.bot.checkuserbot;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.telegram.telegrambots.ApiContextInitializer;
-import org.telegram.telegrambots.TelegramBotsApi;
-import org.telegram.telegrambots.exceptions.TelegramApiException;
-import org.telegram.telegrambots.exceptions.TelegramApiRequestException;
+import org.telegram.telegrambots.meta.TelegramBotsApi;
+import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+import org.telegram.telegrambots.meta.exceptions.TelegramApiRequestException;
 
 public class CheckUserBotApplication {
 
@@ -16,7 +16,7 @@ public class CheckUserBotApplication {
         ApiContextInitializer.init();
         TelegramBotsApi api = new TelegramBotsApi();
         try {
-            CheckUserBot bot = new CheckUserBot();
+            CheckUserBot bot = CheckUserBot.getInstance();
             bot.checkEnvironmentVariables();
             api.registerBot(new CheckUserBot());
             LOG.info(bot.getBotUsername() + " is online");

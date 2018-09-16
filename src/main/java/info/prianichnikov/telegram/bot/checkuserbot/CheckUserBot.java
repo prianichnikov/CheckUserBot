@@ -1,25 +1,42 @@
 package info.prianichnikov.telegram.bot.checkuserbot;
 
-import info.prianichnikov.telegram.bot.checkuserbot.service.StopWordService;
+import info.prianichnikov.telegram.bot.checkuserbot.task.DeleteMessageTask;
+import info.prianichnikov.telegram.bot.checkuserbot.task.DeleteUserTask;
+import info.prianichnikov.telegram.bot.checkuserbot.task.UnbanUserTask;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.telegram.telegrambots.api.methods.BotApiMethod;
-import org.telegram.telegrambots.api.methods.groupadministration.KickChatMember;
-import org.telegram.telegrambots.api.methods.groupadministration.RestrictChatMember;
-import org.telegram.telegrambots.api.methods.send.SendMessage;
-import org.telegram.telegrambots.api.objects.Message;
-import org.telegram.telegrambots.api.objects.Update;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
-import org.telegram.telegrambots.exceptions.TelegramApiException;
+import org.telegram.telegrambots.meta.api.methods.groupadministration.GetChatAdministrators;
+import org.telegram.telegrambots.meta.api.methods.groupadministration.KickChatMember;
+import org.telegram.telegrambots.meta.api.methods.groupadministration.UnbanChatMember;
+import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage;
+import org.telegram.telegrambots.meta.api.objects.*;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
+import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
+import java.util.*;
 
 public class CheckUserBot extends TelegramLongPollingBot {
 
+    private static CheckUserBot bot;
     private final Logger LOG = LogManager.getLogger(CheckUserBot.class.getName());
-    private final StopWordService stopWordService = new StopWordService();
-    private Map<String, Integer> userCounts = new HashMap<>();
+    private static final long DELETE_TIMEOUT = 60 * 1000;
+    private static final String REPLY_MESSAGE = " добрый день!\n" +
+            "Чтобы стать участником данного чата, поздоровайтесь, пожалуйста, со мной, нажав ниже на кнопку Привет.\n" +
+            "У вас есть на это 60 секунд.";
+    private static final Map<String, List<Timer>> TIMERS = new HashMap<>();
+
+    public static CheckUserBot getInstance() {
+        if (bot == null) {
+            bot = new CheckUserBot();
+        }
+        return bot;
+    }
 
     public void checkEnvironmentVariables() throws TelegramApiException {
         if (getBotToken() == null || getBotToken().isEmpty()) {
@@ -38,108 +55,255 @@ public class CheckUserBot extends TelegramLongPollingBot {
     }
 
     public void onUpdateReceived(Update update) {
-        if (update.getMessage() != null) {
-            checkObsceneWords(update.getMessage());
-        } else if (update.getEditedMessage() != null) {
-            checkObsceneWords(update.getEditedMessage());
+
+        // Only new messages and callbacks
+        if (!update.hasCallbackQuery() && !update.hasMessage()) {
+            return;
+        }
+
+        // Callbacks
+        if (update.hasCallbackQuery()) {
+            handleCallbackEvent(update.getCallbackQuery());
+            return;
+        }
+
+        // Only events from last 30 minutes
+        final long between = ChronoUnit.MINUTES.between(
+                LocalDateTime.ofEpochSecond(update.getMessage().getDate(), 0, ZoneOffset.UTC),
+                LocalDateTime.now(ZoneOffset.UTC));
+        if (between > 30) {
+            return;
+        }
+
+        // Handle new members event
+        if (update.getMessage().getNewChatMembers() != null) {
+            handleNewUserEvent(update.getMessage());
+            return;
+        }
+
+        // Other messages from users
+        if (update.hasMessage()) {
+            handleMessageFromNewUsers(update.getMessage());
+        }
+
+    }
+
+    private void handleMessageFromNewUsers(final Message message) {
+        final Integer userId = message.getFrom().getId();
+        final Long chatId = message.getChatId();
+        final String chatUserId = getChatUserId(chatId, userId);
+        if (TIMERS.containsKey(chatUserId)) {
+            LOG.info(String.format("Delete message id: %s from not verified user id: %s", message.getMessageId(), userId));
+            deleteMessage(chatId, message.getMessageId());
         }
     }
 
-    private void checkObsceneWords(final Message message) {
-        final String userKey = message.getFrom().getId().toString().concat(message.getChatId().toString());
-        if (stopWordService.isContainsObsceneWords(message.getText())) {
-//            if (isUserHasAttempt(userKey)) {
-//                increaseCounter(userKey);
-                try {
-                    execute(prepareWarningMessage(message, "No obscene words in this group!"));
-                } catch (TelegramApiException e) {
-                    LOG.error("Cannot send message", e);
-                }
-//            } else {
-//                try {
-//                    execute(prepareRestrictUserAction(message));
-//                    execute(prepareWarningMessage(message, "Your rights was limited to read-only!"));
-//                } catch (TelegramApiException e) {
-//                    LOG.error("Cannot send message", e);
-//                }
-//            }
+    private void handleCallbackEvent(final CallbackQuery callbackQuery) {
+        LOG.info(String.format("Callback from user: %s (id: %s) in group %s (id: %s)",
+                callbackQuery.getFrom().getUserName(), callbackQuery.getFrom().getId(),
+                callbackQuery.getMessage().getChat().getTitle(), callbackQuery.getMessage().getChatId()));
+        final Long chatId = callbackQuery.getMessage().getChatId();
+        final Integer userId = callbackQuery.getFrom().getId();
+        final Integer messageId = callbackQuery.getMessage().getMessageId();
+        if (callbackQuery.getData().equalsIgnoreCase(getChatUserId(chatId, userId))) {
+            LOG.info("Callback is correct, remove scheduled tasks");
+            removeScheduledTasks(chatId, userId);
+            deleteMessage(chatId, messageId);
+            sendSalutation(chatId, callbackQuery.getFrom());
         }
     }
 
-    private void increaseCounter(final String userKey) {
-        if (!userCounts.containsKey(userKey)) {
-            userCounts.put(userKey, 1);
+    private void handleNewUserEvent(final Message message) {
+        LOG.info(String.format("New user id: %s, chat id: %s, message id %s",
+                message.getNewChatMembers().get(0).getUserName(), message.getChatId(), message.getMessageId()));
+
+        // Allow bots added by administrators
+        final User user = message.getNewChatMembers().get(0);
+        if (user.getBot()) {
+            LOG.info("User is bot!");
+            final boolean isBotAddedByAdministrator = getChatAdministrators(message.getChatId()).stream()
+                    .anyMatch(chatMember -> chatMember.getUser().getId().equals(message.getFrom().getId()));
+            if (!isBotAddedByAdministrator) {
+                LOG.warn("User was added not by administrator, remove them from the chat");
+                deleteUser(message.getChatId(), user.getId());
+            }
+            return;
         }
-        userCounts.replace(userKey, userCounts.get(userKey) + 1);
+        final SendMessage replyMessage = prepareReplyMessage(message);
+        try {
+            final Message repliedMessage = execute(replyMessage);
+            prepareDeleteUserTask(message);
+            prepareDeleteMessageTask(repliedMessage, message.getNewChatMembers().get(0).getId());
+        } catch (TelegramApiException e) {
+            LOG.error("Cannot sent reply message", e);
+        }
     }
 
-    private boolean isUserHasAttempt(final String userKey) {
-//        if (!userCounts.containsKey(userKey)) {
-//            return true;
-//        }
-//        final Integer count = userCounts.get(userKey);
-//        return count < 1;
-        return true;
+    private List<ChatMember> getChatAdministrators(final Long chatId) {
+        final GetChatAdministrators chatAdministratorsRequest = new GetChatAdministrators();
+        chatAdministratorsRequest.setChatId(chatId);
+        List<ChatMember> chatAdministrators = new ArrayList<>();
+        try {
+            chatAdministrators = execute(chatAdministratorsRequest);
+        } catch (TelegramApiException e) {
+            LOG.error(String.format("Cannot fetch list of administrators chat id: %s", chatId));
+        }
+        return chatAdministrators;
     }
 
-
-    private void sendNormalMessage(final Update update) throws TelegramApiException {
-        SendMessage startMessage = new SendMessage();
-        startMessage.setChatId(update.getMessage().getChatId());
-        startMessage.setText("It's ok");
-        execute(startMessage);
-    }
-
-
-    private void sendExitMessage(final Update update) throws TelegramApiException {
-        SendMessage startMessage = new SendMessage();
-        startMessage.setChatId(update.getMessage().getChatId());
-        startMessage.setText(update.getMessage().getFrom().getUserName() + " you rights was limited to read-only!");
-        execute(startMessage);
-    }
-
-    private BotApiMethod<Boolean> prepareRestrictUserAction(final Message message) {
-        final RestrictChatMember restrictChatMember = new RestrictChatMember();
-        restrictChatMember.setChatId(message.getChatId());
-        restrictChatMember.setUserId(message.getFrom().getId());
-        restrictChatMember.setUntilDate(0);
-        restrictChatMember.setCanSendMessages(false);
-        restrictChatMember.setCanSendMediaMessages(false);
-        restrictChatMember.setCanSendOtherMessages(false);
-        restrictChatMember.setCanAddWebPagePreviews(false);
-        String userName = message.getFrom().getUserName();
+    private void sendSalutation(final Long chatId, final User user) {
+        LOG.info(String.format("Sending salutation message to user %s (id: %s) in chat id: %s",
+                user.getUserName(), user.getId(), chatId));
+        final SendMessage salutationMessage = new SendMessage();
+        String userName = user.getUserName();
         if (userName == null || userName.isEmpty()) {
-            userName = message.getFrom().getFirstName() + " " + message.getFrom().getLastName();
+            if (user.getFirstName() != null && !user.getFirstName().isEmpty()) {
+                userName = user.getFirstName();
+            }
+            if (user.getLastName()!= null && !user.getLastName().isEmpty()) {
+                userName = userName + " " + user.getLastName();
+            }
         }
-
-        LOG.info(String.format("Restrict access userId: %d, userName %s",
-                message.getFrom().getId(), userName));
-        return restrictChatMember;
+        salutationMessage.setChatId(chatId);
+        salutationMessage.setText("Приветствуем нового участника - " + userName);
+        try {
+            execute(salutationMessage);
+        } catch (TelegramApiException e) {
+            LOG.error("Cannot send salutation message", e);
+        }
     }
 
-    private BotApiMethod<Boolean> prepareKickUserAction(final Update update) {
+
+    public void deleteUser(final Long chatId, final Integer userId) {
+        LOG.info(String.format("Delete user id: %s from chat id: %s", userId, chatId));
         final KickChatMember kickChatMember = new KickChatMember();
-        kickChatMember.setChatId(update.getMessage().getChatId());
-        kickChatMember.setUserId(update.getMessage().getFrom().getId());
+        kickChatMember.setChatId(chatId);
+        kickChatMember.setUserId(userId);
         kickChatMember.setUntilDate(0);
-        return kickChatMember;
-    }
-
-    private SendMessage prepareWarningMessage(final Message message, final String warningText) {
-        SendMessage warningMessage = new SendMessage();
-        warningMessage.setChatId(message.getChatId());
-        warningMessage.setReplyToMessageId(message.getMessageId());
-        warningMessage.setText("Warning: " + warningText);
-        String userName = message.getFrom().getUserName();
-        if (userName == null || userName.isEmpty()) {
-            userName = message.getFrom().getFirstName() + " " + message.getFrom().getLastName();
+        try {
+            execute(kickChatMember);
+        } catch (TelegramApiException e) {
+            LOG.error("Cannot delete the user", e);
         }
-        LOG.info(String.format("Warning message to userId: %d, userName: %s",
-                message.getFrom().getId(), userName));
-        return warningMessage;
+        prepareUnbanUserTask(chatId, userId);
     }
 
-    private void writeToLog(final String messageText) {
-        LOG.info(String.format("Detected message: %s", messageText));
+    public void deleteMessage(final Long chatId, final Integer messageId) {
+        LOG.info(String.format("Delete message with id %s from chat %s", messageId, chatId));
+        final DeleteMessage deleteMessage = new DeleteMessage();
+        deleteMessage.setMessageId(messageId);
+        deleteMessage.setChatId(chatId.toString());
+        try {
+            execute(deleteMessage);
+        } catch (TelegramApiException e) {
+            LOG.error("Cannot delete the message", e);
+        }
+    }
+
+    public void unbanUser(final Long chatId, final Integer userId) {
+        LOG.info(String.format("Unbanning user %s in chat %s", userId, chatId));
+        final UnbanChatMember unbanChatMember = new UnbanChatMember();
+        unbanChatMember.setChatId(chatId);
+        unbanChatMember.setUserId(userId);
+        try {
+            execute(unbanChatMember);
+        } catch (TelegramApiException e) {
+            LOG.error("Cannot unban user", e);
+        }
+    }
+
+    private SendMessage prepareReplyMessage(final Message message) {
+        final SendMessage reply = new SendMessage();
+        final Long chatId = message.getChatId();
+        final User user = message.getNewChatMembers().get(0);
+        reply.setChatId(chatId);
+        reply.setReplyToMessageId(message.getMessageId());
+        String userName = user.getUserName();
+        if (userName == null || userName.isEmpty()) {
+            userName = String.format("[%s](tg://user?id=%s)",
+                    user.getFirstName(),
+                    user.getId());
+            reply.enableMarkdown(true);
+            reply.setText(userName + REPLY_MESSAGE);
+        } else {
+            reply.setText("@" + userName + REPLY_MESSAGE);
+        }
+
+        // Prepare buttons
+        final InlineKeyboardButton button = new InlineKeyboardButton();
+        button.setText("Привет").setCallbackData(getChatUserId(chatId, user.getId()));
+
+        // Prepare buttons row
+        final List<InlineKeyboardButton> buttons = new ArrayList<>();
+        buttons.add(button);
+
+        // Prepare keyboard row
+        final List<List<InlineKeyboardButton>> keyboardRows = new ArrayList<>();
+        keyboardRows.add(buttons);
+
+        // keyboard
+        final InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
+        keyboard.setKeyboard(keyboardRows);
+        reply.setReplyMarkup(keyboard);
+        return reply;
+    }
+
+    private void removeScheduledTasks(final Long chatId, final Integer userId) {
+        LOG.info(String.format("Removing scheduled tasks for user id: %s in chat id: %s", userId, chatId));
+        final String timerKey = getChatUserId(chatId, userId);
+        if(!TIMERS.containsKey(timerKey)) {
+            LOG.error(String.format("Timers map doesn't contain key %s", timerKey));
+            return;
+        }
+        TIMERS.remove(timerKey).forEach(Timer::cancel);
+    }
+
+    private void prepareDeleteUserTask(final Message message) {
+        LOG.info("Preparing task to delete new user");
+        final Integer userId = message.getNewChatMembers().get(0).getId();
+        final Long chatId = message.getChatId();
+        final DeleteUserTask deleteUserTask = new DeleteUserTask(chatId, userId);
+        final Timer deleteUserTimer = new Timer();
+        deleteUserTimer.schedule(deleteUserTask, DELETE_TIMEOUT);
+        final String timerKey = getChatUserId(chatId, userId);
+        if (TIMERS.containsKey(timerKey)) {
+            final List<Timer> timers = TIMERS.remove(timerKey);
+            timers.add(deleteUserTimer);
+            TIMERS.put(timerKey, timers);
+        } else {
+            final List<Timer> timers = new ArrayList<>();
+            timers.add(deleteUserTimer);
+            TIMERS.put(timerKey, timers);
+        }
+    }
+
+    private void prepareDeleteMessageTask(final Message message, final Integer userId) {
+        LOG.info("Preparing task to delete user reply message");
+        final Long chatId = message.getChatId();
+        final Integer messageId = message.getMessageId();
+        final DeleteMessageTask deleteMessageTask = new DeleteMessageTask(chatId, messageId);
+        final Timer deleteMessageTimer = new Timer();
+        deleteMessageTimer.schedule(deleteMessageTask, DELETE_TIMEOUT);
+        final String timerKey = getChatUserId(chatId, userId);
+        if (TIMERS.containsKey(timerKey)) {
+            final List<Timer> timers = TIMERS.remove(timerKey);
+            timers.add(deleteMessageTimer);
+            TIMERS.put(timerKey, timers);
+        } else {
+            final List<Timer> timers = new ArrayList<>();
+            timers.add(deleteMessageTimer);
+            TIMERS.put(timerKey, timers);
+        }
+    }
+
+    private void prepareUnbanUserTask(final Long chatId, final Integer userId) {
+        LOG.info("Preparing task to unban user");
+        final UnbanUserTask unbanUserTask = new UnbanUserTask(chatId, userId);
+        final Timer unbanUserTimer = new Timer();
+        unbanUserTimer.schedule(unbanUserTask, 10 * 1000);
+    }
+
+    private String getChatUserId(final Long chatId, final Integer userId) {
+        return chatId + "_" + userId;
     }
 }
