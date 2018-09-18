@@ -27,6 +27,7 @@ RUN mkdir -p /usr/local/bot
 COPY --from=build /CheckUserBot/check-user-bot.jar /usr/local/bot/
 
 ENV BOT_TOKEN=
-ENV BOT_NAME=
+ENV BOT_NAME=CheckUserBot
+ENV JAVA_OPTS="-Xms25m -Xmx25m -verbose:gc -Xloggc:/usr/local/bot/gc.log -XshowSettings:vm"
 
-CMD ["/usr/bin/java", "-jar", "/usr/local/bot/check-user-bot.jar"]
+CMD /usr/bin/java $JAVA_OPTS -jar /usr/local/bot/check-user-bot.jar
