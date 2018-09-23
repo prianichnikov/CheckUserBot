@@ -25,9 +25,10 @@ public class CheckUserBot extends TelegramLongPollingBot {
 
     private static CheckUserBot bot;
     private final Logger LOG = LogManager.getLogger(CheckUserBot.class.getName());
-    private static final long DELETE_TIMEOUT = 60 * 1000;
+    private static final long DELETE_TIMEOUT = 30 * 1000;
+    private static final long UNBAN_TIMEOUT = 10 * 1000;
     private static final String REPLY_MESSAGE = " добрый день!\n" +
-            "Чтобы стать участником данного чата, поздоровайтесь, пожалуйста, со мной, нажав ниже на кнопку Привет.\n" +
+            "Чтобы стать участником данного чата, поздоровайтесь, пожалуйста, со мной, нажав ниже на кнопку \"Привет\".\n" +
             "У вас есть на это 60 секунд.";
     private static final Map<String, List<Timer>> TIMERS = new HashMap<>();
 
@@ -99,26 +100,26 @@ public class CheckUserBot extends TelegramLongPollingBot {
     }
 
     private void handleCallbackEvent(final CallbackQuery callbackQuery) {
+        final User user = callbackQuery.getFrom();
         LOG.info(String.format("Callback from user: %s (id: %s) in group %s (id: %s)",
-                callbackQuery.getFrom().getUserName(), callbackQuery.getFrom().getId(),
+                user.getUserName(), user.getId(),
                 callbackQuery.getMessage().getChat().getTitle(), callbackQuery.getMessage().getChatId()));
         final Long chatId = callbackQuery.getMessage().getChatId();
-        final Integer userId = callbackQuery.getFrom().getId();
         final Integer messageId = callbackQuery.getMessage().getMessageId();
-        if (callbackQuery.getData().equalsIgnoreCase(getChatUserId(chatId, userId))) {
-            LOG.info("Callback is correct, remove scheduled tasks");
-            removeScheduledTasks(chatId, userId);
+        if (callbackQuery.getData().equalsIgnoreCase(getChatUserId(chatId, user.getId()))) {
+            LOG.info("Callback is correct");
+            removeScheduledTasks(chatId, user.getId());
             deleteMessage(chatId, messageId);
-            sendSalutation(chatId, callbackQuery.getFrom());
         }
     }
 
     private void handleNewUserEvent(final Message message) {
-        LOG.info(String.format("New user id: %s, chat id: %s, message id %s",
-                message.getNewChatMembers().get(0).getUserName(), message.getChatId(), message.getMessageId()));
+        final User user = message.getNewChatMembers().get(0);
+        LOG.info(String.format("New user id: %s, login: %s, first name: %s, last name %s, chat id: %s, message id %s",
+                user.getId(), user.getUserName(), user.getFirstName(), user.getLastName(),
+                message.getChatId(), message.getMessageId()));
 
         // Allow bots added by administrators
-        final User user = message.getNewChatMembers().get(0);
         if (user.getBot()) {
             LOG.info("User is bot!");
             final boolean isBotAddedByAdministrator = getChatAdministrators(message.getChatId()).stream()
@@ -151,29 +152,6 @@ public class CheckUserBot extends TelegramLongPollingBot {
         return chatAdministrators;
     }
 
-    private void sendSalutation(final Long chatId, final User user) {
-        LOG.info(String.format("Sending salutation message to user %s (id: %s) in chat id: %s",
-                user.getUserName(), user.getId(), chatId));
-        final SendMessage salutationMessage = new SendMessage();
-        String userName = user.getUserName();
-        if (userName == null || userName.isEmpty()) {
-            if (user.getFirstName() != null && !user.getFirstName().isEmpty()) {
-                userName = user.getFirstName();
-            }
-            if (user.getLastName()!= null && !user.getLastName().isEmpty()) {
-                userName = userName + " " + user.getLastName();
-            }
-        }
-        salutationMessage.setChatId(chatId);
-        salutationMessage.setText("Приветствуем нового участника - " + userName);
-        try {
-            execute(salutationMessage);
-        } catch (TelegramApiException e) {
-            LOG.error("Cannot send salutation message", e);
-        }
-    }
-
-
     public void deleteUser(final Long chatId, final Integer userId) {
         LOG.info(String.format("Delete user id: %s from chat id: %s", userId, chatId));
         final KickChatMember kickChatMember = new KickChatMember();
@@ -189,7 +167,7 @@ public class CheckUserBot extends TelegramLongPollingBot {
     }
 
     public void deleteMessage(final Long chatId, final Integer messageId) {
-        LOG.info(String.format("Delete message with id %s from chat %s", messageId, chatId));
+        LOG.info(String.format("Delete message id: %s from chat id: %s", messageId, chatId));
         final DeleteMessage deleteMessage = new DeleteMessage();
         deleteMessage.setMessageId(messageId);
         deleteMessage.setChatId(chatId.toString());
@@ -259,9 +237,9 @@ public class CheckUserBot extends TelegramLongPollingBot {
     }
 
     private void prepareDeleteUserTask(final Message message) {
-        LOG.info("Preparing task to delete new user");
         final Integer userId = message.getNewChatMembers().get(0).getId();
         final Long chatId = message.getChatId();
+        LOG.info(String.format("Preparing task to delete new user id: %s from chat id: %s", userId, chatId));
         final DeleteUserTask deleteUserTask = new DeleteUserTask(chatId, userId);
         final Timer deleteUserTimer = new Timer();
         deleteUserTimer.schedule(deleteUserTask, DELETE_TIMEOUT);
@@ -300,7 +278,7 @@ public class CheckUserBot extends TelegramLongPollingBot {
         LOG.info("Preparing task to unban user");
         final UnbanUserTask unbanUserTask = new UnbanUserTask(chatId, userId);
         final Timer unbanUserTimer = new Timer();
-        unbanUserTimer.schedule(unbanUserTask, 10 * 1000);
+        unbanUserTimer.schedule(unbanUserTask, UNBAN_TIMEOUT);
     }
 
     private String getChatUserId(final Long chatId, final Integer userId) {
