@@ -115,6 +115,7 @@ public class CheckUserBot extends TelegramLongPollingBot {
 
     private void handleNewUserEvent(final Message message) {
         final User user = message.getNewChatMembers().get(0);
+        LOG.info("---===---");
         LOG.info(String.format("New user id: %s, login: %s, first name: %s, last name %s, chat id: %s, message id %s",
                 user.getId(), user.getUserName(), user.getFirstName(), user.getLastName(),
                 message.getChatId(), message.getMessageId()));
@@ -134,7 +135,8 @@ public class CheckUserBot extends TelegramLongPollingBot {
         try {
             final Message repliedMessage = execute(replyMessage);
             prepareDeleteUserTask(message);
-            prepareDeleteMessageTask(repliedMessage, message.getNewChatMembers().get(0).getId());
+            prepareDeleteMessageTask(repliedMessage, user.getId());
+            prepareDeleteMessageTask(message, user.getId());
         } catch (TelegramApiException e) {
             LOG.error("Cannot sent reply message", e);
         }

@@ -17,17 +17,14 @@ RUN ./mvnw package
 # Prepare image stage
 ###
 
-FROM alpine:latest
+FROM openjdk:8-jre-alpine
 
-RUN apk update && \
-    apk add --no-cache openjdk8
-
-RUN mkdir -p /usr/local/bot
-
-COPY --from=build /CheckUserBot/check-user-bot.jar /usr/local/bot/
+COPY --from=build /CheckUserBot/check-user-bot.jar /
 
 ENV BOT_TOKEN=
 ENV BOT_NAME=CheckUserBot
-ENV JAVA_OPTS="-Xms25m -Xmx25m -verbose:gc -Xloggc:/usr/local/bot/gc.log -XshowSettings:vm"
+ENV JVM_XMS=-Xms25m
+ENV JVM_XMX=-Xmx25m
+ENV JAVA_OPTS="$JVM_XMS $JVM_XMX -XshowSettings:vm"
 
-CMD /usr/bin/java $JAVA_OPTS -jar /usr/local/bot/check-user-bot.jar
+CMD /usr/bin/java $JAVA_OPTS -jar /check-user-bot.jar
