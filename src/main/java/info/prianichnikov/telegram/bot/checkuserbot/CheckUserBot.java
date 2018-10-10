@@ -25,7 +25,7 @@ public class CheckUserBot extends TelegramLongPollingBot {
 
     private static CheckUserBot bot;
     private final Logger LOG = LogManager.getLogger(CheckUserBot.class.getName());
-    private static final long DELETE_TIMEOUT = 30 * 1000;
+    private static final long DELETE_TIMEOUT = 60 * 1000;
     private static final long UNBAN_TIMEOUT = 10 * 1000;
     private static final String REPLY_MESSAGE = " добрый день!\n" +
             "Чтобы стать участником данного чата, поздоровайтесь, пожалуйста, со мной, нажав ниже на кнопку \"Привет\".\n" +
