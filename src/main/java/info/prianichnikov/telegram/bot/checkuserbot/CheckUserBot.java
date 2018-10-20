@@ -1,13 +1,16 @@
 package info.prianichnikov.telegram.bot.checkuserbot;
 
+import info.prianichnikov.telegram.bot.checkuserbot.exception.BotException;
+import info.prianichnikov.telegram.bot.checkuserbot.service.PropertiesService;
 import info.prianichnikov.telegram.bot.checkuserbot.task.DeleteMessageTask;
 import info.prianichnikov.telegram.bot.checkuserbot.task.DeleteUserTask;
-import info.prianichnikov.telegram.bot.checkuserbot.task.UnbanUserTask;
+import info.prianichnikov.telegram.bot.checkuserbot.task.UnbanningUserTask;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.groupadministration.GetChatAdministrators;
 import org.telegram.telegrambots.meta.api.methods.groupadministration.KickChatMember;
+import org.telegram.telegrambots.meta.api.methods.groupadministration.LeaveChat;
 import org.telegram.telegrambots.meta.api.methods.groupadministration.UnbanChatMember;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage;
@@ -26,23 +29,28 @@ public class CheckUserBot extends TelegramLongPollingBot {
     private static CheckUserBot bot;
     private final Logger LOG = LogManager.getLogger(CheckUserBot.class.getName());
     private static final long DELETE_TIMEOUT = 60 * 1000;
-    private static final long UNBAN_TIMEOUT = 10 * 1000;
+    private static final long UNBANNING_TIMEOUT = 10 * 1000;
+    private static final String BUTTON_MESSAGE = "Привет";
     private static final String REPLY_MESSAGE = " добрый день!\n" +
-            "Чтобы стать участником данного чата, поздоровайтесь, пожалуйста, со мной, нажав ниже на кнопку \"Привет\".\n" +
+            "Чтобы стать участником данного чата, пожалуйста, " +
+            "нажмите на кнопку \"" + BUTTON_MESSAGE + "\".\n" +
             "У вас есть на это 60 секунд.";
     private static final Map<String, List<Timer>> TIMERS = new HashMap<>();
+    private final PropertiesService propertiesService;
 
-    public static CheckUserBot getInstance() {
+    private CheckUserBot() throws BotException {
+        if (getBotToken() == null || getBotToken().isEmpty()) {
+            throw new BotException("Bot token cannot be null or empty");
+        }
+        propertiesService = new PropertiesService("configuration.properties");
+    }
+
+
+    public static CheckUserBot getInstance() throws BotException {
         if (bot == null) {
             bot = new CheckUserBot();
         }
         return bot;
-    }
-
-    public void checkEnvironmentVariables() throws TelegramApiException {
-        if (getBotToken() == null || getBotToken().isEmpty()) {
-            throw new TelegramApiException("Bot token cannot be null or empty");
-        }
     }
 
     @Override
@@ -59,6 +67,21 @@ public class CheckUserBot extends TelegramLongPollingBot {
 
         // Only new messages and callbacks
         if (!update.hasCallbackQuery() && !update.hasMessage()) {
+            return;
+        }
+
+        // Ignore bot chat left messages
+        if (update.hasMessage() && update.getMessage().getLeftChatMember() != null &&
+            update.getMessage().getLeftChatMember().getId().toString().equals(getBotToken().split(":")[0])) {
+            return;
+        }
+
+        // Leaving from non allowed chats
+        final String chatId = getChatId(update);
+        if(!propertiesService.getAllowedChats().contains(chatId)) {
+            final String chatName = getChatName(update);
+            LOG.error("Message from not allowed chat name: {}, id: {}", chatName, chatId);
+            leaveChat(chatId);
             return;
         }
 
@@ -87,6 +110,37 @@ public class CheckUserBot extends TelegramLongPollingBot {
             handleMessageFromNewUsers(update.getMessage());
         }
 
+    }
+
+    private void leaveChat(final String chatId) {
+        LOG.info("Leaving chat id: {}", chatId);
+        final LeaveChat leaveChat = new LeaveChat();
+        leaveChat.setChatId(chatId);
+        try {
+            execute(leaveChat);
+        } catch (TelegramApiException ex) {
+            LOG.error("Error leaving chat", ex);
+        }
+    }
+
+    private String getChatName(final Update update) {
+        String chatName;
+        if (update.hasMessage()) {
+            chatName = update.getMessage().getChat().getTitle();
+        } else {
+            chatName = update.getCallbackQuery().getMessage().getChat().getTitle();
+        }
+        return chatName;
+    }
+
+    private String getChatId(final Update update) {
+        String chatId;
+        if (update.hasMessage()) {
+            chatId = update.getMessage().getChatId().toString();
+        } else {
+            chatId = update.getCallbackQuery().getMessage().getChatId().toString();
+        }
+        return chatId;
     }
 
     private void handleMessageFromNewUsers(final Message message) {
@@ -165,7 +219,7 @@ public class CheckUserBot extends TelegramLongPollingBot {
         } catch (TelegramApiException e) {
             LOG.error("Cannot delete the user", e);
         }
-        prepareUnbanUserTask(chatId, userId);
+        prepareUnbanningUserTask(chatId, userId);
     }
 
     public void deleteMessage(final Long chatId, final Integer messageId) {
@@ -180,15 +234,15 @@ public class CheckUserBot extends TelegramLongPollingBot {
         }
     }
 
-    public void unbanUser(final Long chatId, final Integer userId) {
-        LOG.info(String.format("Unbanning user %s in chat %s", userId, chatId));
+    public void unbanningUser(final Long chatId, final Integer userId) {
+        LOG.info(String.format("Unbanning user id: %s in chat id: %s", userId, chatId));
         final UnbanChatMember unbanChatMember = new UnbanChatMember();
         unbanChatMember.setChatId(chatId);
         unbanChatMember.setUserId(userId);
         try {
             execute(unbanChatMember);
         } catch (TelegramApiException e) {
-            LOG.error("Cannot unban user", e);
+            LOG.error("Cannot unbanning user", e);
         }
     }
 
@@ -211,7 +265,7 @@ public class CheckUserBot extends TelegramLongPollingBot {
 
         // Prepare buttons
         final InlineKeyboardButton button = new InlineKeyboardButton();
-        button.setText("Привет").setCallbackData(getChatUserId(chatId, user.getId()));
+        button.setText(BUTTON_MESSAGE).setCallbackData(getChatUserId(chatId, user.getId()));
 
         // Prepare buttons row
         final List<InlineKeyboardButton> buttons = new ArrayList<>();
@@ -258,7 +312,7 @@ public class CheckUserBot extends TelegramLongPollingBot {
     }
 
     private void prepareDeleteMessageTask(final Message message, final Integer userId) {
-        LOG.info("Preparing task to delete user reply message");
+        LOG.info("Preparing task to delete message id: {}", message.getMessageId());
         final Long chatId = message.getChatId();
         final Integer messageId = message.getMessageId();
         final DeleteMessageTask deleteMessageTask = new DeleteMessageTask(chatId, messageId);
@@ -276,11 +330,11 @@ public class CheckUserBot extends TelegramLongPollingBot {
         }
     }
 
-    private void prepareUnbanUserTask(final Long chatId, final Integer userId) {
-        LOG.info("Preparing task to unban user");
-        final UnbanUserTask unbanUserTask = new UnbanUserTask(chatId, userId);
-        final Timer unbanUserTimer = new Timer();
-        unbanUserTimer.schedule(unbanUserTask, UNBAN_TIMEOUT);
+    private void prepareUnbanningUserTask(final Long chatId, final Integer userId) {
+        LOG.info("Preparing task to unbanning user id: {}", userId);
+        final UnbanningUserTask unbanningUserTask = new UnbanningUserTask(chatId, userId);
+        final Timer unbanningUserTimer = new Timer();
+        unbanningUserTimer.schedule(unbanningUserTask, UNBANNING_TIMEOUT);
     }
 
     private String getChatUserId(final Long chatId, final Integer userId) {

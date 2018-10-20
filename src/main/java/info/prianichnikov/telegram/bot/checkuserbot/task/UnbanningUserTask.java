@@ -7,23 +7,23 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.TimerTask;
 
-public class DeleteUserTask extends TimerTask {
+public class UnbanningUserTask extends TimerTask {
 
-    private Integer userId;
-    private Long chatId;
-    private final Logger LOG = LogManager.getLogger(DeleteUserTask.class);
+    private final Long chatId;
+    private final Integer userId;
+    private final Logger LOG = LogManager.getLogger(UnbanningUserTask.class);
 
-    public DeleteUserTask(Long chatId, Integer userId) {
-        this.userId = userId;
+    public UnbanningUserTask(Long chatId, Integer userId) {
         this.chatId = chatId;
+        this.userId = userId;
     }
 
     @Override
     public void run() {
         try {
-            CheckUserBot.getInstance().deleteUser(chatId, userId);
+            CheckUserBot.getInstance().unbanningUser(chatId, userId);
         } catch (BotException e) {
-            LOG.error("Task error: Cannot delete user id: {} from chat id: {}", userId, chatId);
+            LOG.error("Task error: Cannot unbanning user id: {} from chat id: {}", userId, chatId);
         }
     }
 }
