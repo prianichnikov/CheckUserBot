@@ -1,17 +1,16 @@
 package info.prianichnikov.telegram.bot.checkuserbot;
 
-import info.prianichnikov.telegram.bot.checkuserbot.exception.BotException;
+import info.prianichnikov.telegram.bot.checkuserbot.number.RandomNumber;
 import info.prianichnikov.telegram.bot.checkuserbot.service.PropertiesService;
+import info.prianichnikov.telegram.bot.checkuserbot.service.RandomNumberService;
 import info.prianichnikov.telegram.bot.checkuserbot.task.DeleteMessageTask;
 import info.prianichnikov.telegram.bot.checkuserbot.task.DeleteUserTask;
-import info.prianichnikov.telegram.bot.checkuserbot.task.UnbanningUserTask;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.groupadministration.GetChatAdministrators;
 import org.telegram.telegrambots.meta.api.methods.groupadministration.KickChatMember;
 import org.telegram.telegrambots.meta.api.methods.groupadministration.LeaveChat;
-import org.telegram.telegrambots.meta.api.methods.groupadministration.UnbanChatMember;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage;
 import org.telegram.telegrambots.meta.api.objects.*;
@@ -19,69 +18,67 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMa
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
+import java.time.*;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 public class CheckUserBot extends TelegramLongPollingBot {
 
-    private static CheckUserBot bot;
-    private final Logger LOG = LogManager.getLogger(CheckUserBot.class.getName());
-    private static final long DELETE_TIMEOUT = 60 * 1000;
-    private static final long UNBANNING_TIMEOUT = 10 * 1000;
-    private static final String BUTTON_MESSAGE = "Привет";
-    private static final String REPLY_MESSAGE = " добрый день!\n" +
-            "Чтобы стать участником данного чата, пожалуйста, " +
-            "нажмите на кнопку \"" + BUTTON_MESSAGE + "\".\n" +
-            "У вас есть на это 60 секунд.";
-    private static final Map<String, List<Timer>> TIMERS = new HashMap<>();
-    private final PropertiesService propertiesService;
+    private static final Logger LOG = LogManager.getLogger(CheckUserBot.class.getName());
+    private static final Map<String, List<Timer>> TIMERS_MAP = new HashMap<>();
 
-    private CheckUserBot() throws BotException {
-        if (getBotToken() == null || getBotToken().isEmpty()) {
-            throw new BotException("Bot token cannot be null or empty");
-        }
-        propertiesService = new PropertiesService("configuration.properties");
-    }
-
-
-    public static CheckUserBot getInstance() throws BotException {
-        if (bot == null) {
-            bot = new CheckUserBot();
-        }
-        return bot;
-    }
+    private final PropertiesService propertiesService = new PropertiesService();
+    private final RandomNumberService randomNumberService = new RandomNumberService();
 
     @Override
     public String getBotUsername() {
-        return System.getenv("BOT_NAME");
+        return propertiesService.getBotName();
     }
 
     @Override
     public String getBotToken() {
-        return System.getenv("BOT_TOKEN");
+        return propertiesService.getBotToken();
     }
 
+    @Override
     public void onUpdateReceived(Update update) {
 
-        // Only new messages and callbacks
+        // Process only new messages and callbacks
         if (!update.hasCallbackQuery() && !update.hasMessage()) {
             return;
         }
 
-        // Ignore bot chat left messages
-        if (update.hasMessage() && update.getMessage().getLeftChatMember() != null &&
-            update.getMessage().getLeftChatMember().getId().toString().equals(getBotToken().split(":")[0])) {
+        // Private messages
+        if (update.getMessage().getChat().isUserChat()) {
+            Message message = update.getMessage();
+            User user = update.getMessage().getFrom();
+            LOG.info("Private message: [{}] from id: [{}], userName [{}], firstName [{}], lastName: [{}]",
+                    message.getText(), user.getId(), user.getUserName(), user.getFirstName(), user.getLastName());
+            sendPrivateMessage(message.getChat().getId(), propertiesService.getPrivateMessage());
             return;
         }
 
         // Leaving from non allowed chats
-        final String chatId = getChatId(update);
-        if(!propertiesService.getAllowedChats().contains(chatId)) {
-            final String chatName = getChatName(update);
-            LOG.error("Message from not allowed chat name: {}, id: {}", chatName, chatId);
+        String chatId = getChatId(update);
+        if (!propertiesService.getAllowedChats().contains(chatId)) {
+            String chatName = getChatName(update);
+            LOG.warn("Message from not allowed chat: [{}], id: [{}], leaving this chat", chatName, chatId);
             leaveChat(chatId);
+            return;
+        }
+
+        // Only last events
+        if (update.hasMessage() && ChronoUnit.MINUTES.between(
+                ZonedDateTime.ofInstant(Instant.ofEpochSecond(update.getMessage().getDate()), ZoneOffset.UTC),
+                ZonedDateTime.now(ZoneOffset.UTC)) > propertiesService.getMessageTimeoutMinutes()) {
+            LOG.warn("The message id [{}] was send more than {} minutes ago, ignore it",
+                    update.getMessage().getMessageId(), propertiesService.getMessageTimeoutMinutes());
+            return;
+        }
+
+        // Ignore bot left group messages
+        if (update.hasMessage() && update.getMessage().getLeftChatMember() != null &&
+                update.getMessage().getLeftChatMember().getId().toString().equals(getBotToken().split(":")[0])) {
             return;
         }
 
@@ -91,30 +88,18 @@ public class CheckUserBot extends TelegramLongPollingBot {
             return;
         }
 
-        // Only events from last 30 minutes
-        final long between = ChronoUnit.MINUTES.between(
-                LocalDateTime.ofEpochSecond(update.getMessage().getDate(), 0, ZoneOffset.UTC),
-                LocalDateTime.now(ZoneOffset.UTC));
-        if (between > 30) {
-            return;
-        }
-
         // Handle new members event
-        if (update.getMessage().getNewChatMembers() != null) {
+        if (!update.getMessage().getNewChatMembers().isEmpty()) {
             handleNewUserEvent(update.getMessage());
             return;
         }
 
         // Other messages from users
-        if (update.hasMessage()) {
-            handleMessageFromNewUsers(update.getMessage());
-        }
-
+        deleteNonVerifiedUserMessages(update.getMessage());
     }
 
-    private void leaveChat(final String chatId) {
-        LOG.info("Leaving chat id: {}", chatId);
-        final LeaveChat leaveChat = new LeaveChat();
+    private void leaveChat(String chatId) {
+        LeaveChat leaveChat = new LeaveChat();
         leaveChat.setChatId(chatId);
         try {
             execute(leaveChat);
@@ -123,7 +108,7 @@ public class CheckUserBot extends TelegramLongPollingBot {
         }
     }
 
-    private String getChatName(final Update update) {
+    private String getChatName(Update update) {
         String chatName;
         if (update.hasMessage()) {
             chatName = update.getMessage().getChat().getTitle();
@@ -133,98 +118,104 @@ public class CheckUserBot extends TelegramLongPollingBot {
         return chatName;
     }
 
-    private String getChatId(final Update update) {
-        String chatId;
+    private String getChatId(Update update) {
         if (update.hasMessage()) {
-            chatId = update.getMessage().getChatId().toString();
+            return update.getMessage().getChatId().toString();
         } else {
-            chatId = update.getCallbackQuery().getMessage().getChatId().toString();
+            return update.getCallbackQuery().getMessage().getChatId().toString();
         }
-        return chatId;
     }
 
-    private void handleMessageFromNewUsers(final Message message) {
-        final Integer userId = message.getFrom().getId();
-        final Long chatId = message.getChatId();
-        final String chatUserId = getChatUserId(chatId, userId);
-        if (TIMERS.containsKey(chatUserId)) {
-            LOG.info(String.format("Delete message id: %s from not verified user id: %s", message.getMessageId(), userId));
+    private void deleteNonVerifiedUserMessages(Message message) {
+        Integer userId = message.getFrom().getId();
+        Long chatId = message.getChatId();
+        String chatUserId = getChatUserId(chatId, userId);
+        if (TIMERS_MAP.containsKey(chatUserId)) {
+            LOG.info("Message from non verified user: [{}]", message.getText());
             deleteMessage(chatId, message.getMessageId());
         }
     }
 
-    private void handleCallbackEvent(final CallbackQuery callbackQuery) {
-        final User user = callbackQuery.getFrom();
-        LOG.info(String.format("Callback from user: %s (id: %s) in group %s (id: %s)",
-                user.getUserName(), user.getId(),
-                callbackQuery.getMessage().getChat().getTitle(), callbackQuery.getMessage().getChatId()));
-        final Long chatId = callbackQuery.getMessage().getChatId();
-        final Integer messageId = callbackQuery.getMessage().getMessageId();
-        if (callbackQuery.getData().equalsIgnoreCase(getChatUserId(chatId, user.getId()))) {
-            LOG.info("Callback is correct");
-            removeScheduledTasks(chatId, user.getId());
-            deleteMessage(chatId, messageId);
-        }
-    }
+    private void handleCallbackEvent(CallbackQuery callbackQuery) {
+        User user = callbackQuery.getFrom();
+        Long chatId = callbackQuery.getMessage().getChatId();
+        String callbackData = callbackQuery.getData();
+        Integer messageId = callbackQuery.getMessage().getMessageId();
 
-    private void handleNewUserEvent(final Message message) {
-        final User user = message.getNewChatMembers().get(0);
-        LOG.info("---===---");
-        LOG.info(String.format("New user id: %s, login: %s, first name: %s, last name %s, chat id: %s, message id %s",
-                user.getId(), user.getUserName(), user.getFirstName(), user.getLastName(),
-                message.getChatId(), message.getMessageId()));
-
-        // Allow bots added by administrators
-        if (user.getBot()) {
-            LOG.info("User is bot!");
-            final boolean isBotAddedByAdministrator = getChatAdministrators(message.getChatId()).stream()
-                    .anyMatch(chatMember -> chatMember.getUser().getId().equals(message.getFrom().getId()));
-            if (!isBotAddedByAdministrator) {
-                LOG.warn("User was added not by administrator, remove them from the chat");
-                deleteUser(message.getChatId(), user.getId());
+        if (callbackData.contains(user.getId().toString())) {
+            if (callbackData.equals(getChatUserId(chatId, user.getId()))) {
+                LOG.info("Answer is correct");
+                removeScheduledTasks(chatId, user.getId());
+                deleteMessage(chatId, messageId);
+            } else {
+                LOG.info("Answer is wrong, kicking user");
+                removeScheduledTasks(chatId, user.getId());
+                deleteUser(chatId, user.getId());
+                deleteMessage(chatId, messageId);
             }
-            return;
-        }
-        final SendMessage replyMessage = prepareReplyMessage(message);
-        try {
-            final Message repliedMessage = execute(replyMessage);
-            prepareDeleteUserTask(message);
-            prepareDeleteMessageTask(repliedMessage, user.getId());
-            prepareDeleteMessageTask(message, user.getId());
-        } catch (TelegramApiException e) {
-            LOG.error("Cannot sent reply message", e);
+        } else {
+            LOG.info("Callback from wrong user id: [{}], name: [{}]", user.getId(), user.getUserName());
         }
     }
 
-    private List<ChatMember> getChatAdministrators(final Long chatId) {
-        final GetChatAdministrators chatAdministratorsRequest = new GetChatAdministrators();
+    private void handleNewUserEvent(Message newUserMessage) {
+        for (User newChatMember : newUserMessage.getNewChatMembers()) {
+            LOG.info("---===---");
+            LOG.info("New user id: [{}], login: [{}], first name: [{}], last name [{}], chat id: [{}], message id [{}]",
+                    newChatMember.getId(), newChatMember.getUserName(), newChatMember.getFirstName(), newChatMember.getLastName(),
+                    newUserMessage.getChatId(), newUserMessage.getMessageId());
+
+            // Allow bots was added by admins
+            if (newChatMember.getBot()) {
+                LOG.warn("User is bot!");
+                boolean isBotAddedByAdmin = getChatAdministrators(newUserMessage.getChatId()).stream()
+                        .anyMatch(admin -> admin.getUser().getId().equals(newUserMessage.getFrom().getId()));
+                if (!isBotAddedByAdmin) {
+                    LOG.warn("Bot was added not by administrators, remove them from the chat");
+                    deleteUser(newUserMessage.getChatId(), newChatMember.getId());
+                }
+                return;
+            }
+            SendMessage replyMessage = prepareReplyMessage(newUserMessage, newChatMember);
+            try {
+                Message repliedMessage = execute(replyMessage);
+                prepareDeleteUserTask(newUserMessage, newChatMember.getId());
+                prepareDeleteMessageTask(newUserMessage, newChatMember.getId());
+                prepareDeleteMessageTask(repliedMessage, newChatMember.getId());
+            } catch (TelegramApiException e) {
+                LOG.error("Cannot sent reply message", e);
+            }
+        }
+    }
+
+    private List<ChatMember> getChatAdministrators(Long chatId) {
+        GetChatAdministrators chatAdministratorsRequest = new GetChatAdministrators();
         chatAdministratorsRequest.setChatId(chatId);
         List<ChatMember> chatAdministrators = new ArrayList<>();
         try {
             chatAdministrators = execute(chatAdministratorsRequest);
         } catch (TelegramApiException e) {
-            LOG.error(String.format("Cannot fetch list of administrators chat id: %s", chatId));
+            LOG.error("Cannot fetch administrators list from chat id: [{}]", chatId);
         }
         return chatAdministrators;
     }
 
-    public void deleteUser(final Long chatId, final Integer userId) {
-        LOG.info(String.format("Delete user id: %s from chat id: %s", userId, chatId));
-        final KickChatMember kickChatMember = new KickChatMember();
+    public void deleteUser(Long chatId, Integer userId) {
+        LOG.info("Delete user id: [{}] from chat id: [{}]", userId, chatId);
+        KickChatMember kickChatMember = new KickChatMember();
         kickChatMember.setChatId(chatId);
         kickChatMember.setUserId(userId);
-        kickChatMember.setUntilDate(0);
+        kickChatMember.setUntilDate(ZonedDateTime.now().plusSeconds(propertiesService.getUnBanTimeoutSecond()).toInstant());
         try {
             execute(kickChatMember);
         } catch (TelegramApiException e) {
             LOG.error("Cannot delete the user", e);
         }
-        prepareUnbanningUserTask(chatId, userId);
     }
 
-    public void deleteMessage(final Long chatId, final Integer messageId) {
-        LOG.info(String.format("Delete message id: %s from chat id: %s", messageId, chatId));
-        final DeleteMessage deleteMessage = new DeleteMessage();
+    public void deleteMessage(Long chatId, Integer messageId) {
+        LOG.info("Delete message id: [{}] from chat id: [{}]", messageId, chatId);
+        DeleteMessage deleteMessage = new DeleteMessage();
         deleteMessage.setMessageId(messageId);
         deleteMessage.setChatId(chatId.toString());
         try {
@@ -234,110 +225,110 @@ public class CheckUserBot extends TelegramLongPollingBot {
         }
     }
 
-    public void unbanningUser(final Long chatId, final Integer userId) {
-        LOG.info(String.format("Unbanning user id: %s in chat id: %s", userId, chatId));
-        final UnbanChatMember unbanChatMember = new UnbanChatMember();
-        unbanChatMember.setChatId(chatId);
-        unbanChatMember.setUserId(userId);
-        try {
-            execute(unbanChatMember);
-        } catch (TelegramApiException e) {
-            LOG.error("Cannot unbanning user", e);
-        }
-    }
-
-    private SendMessage prepareReplyMessage(final Message message) {
-        final SendMessage reply = new SendMessage();
-        final Long chatId = message.getChatId();
-        final User user = message.getNewChatMembers().get(0);
+    private SendMessage prepareReplyMessage(Message message, User user) {
+        SendMessage reply = new SendMessage();
+        Long chatId = message.getChatId();
         reply.setChatId(chatId);
         reply.setReplyToMessageId(message.getMessageId());
+        reply.enableMarkdown(true);
         String userName = user.getUserName();
+
+        List<InlineKeyboardButton> buttons = new ArrayList<>();
+        List<RandomNumber> randomNumbers = randomNumberService.getRandomNumbers();
+        RandomNumber controlNumber = randomNumberService.getControlNumber(randomNumbers);
+
+        for (RandomNumber randomNumber : randomNumbers) {
+            InlineKeyboardButton button = new InlineKeyboardButton();
+            if (randomNumber.equals(controlNumber)) {
+                button.setText(randomNumber.getUnicode()).setCallbackData(getChatUserId(chatId, user.getId()));
+            } else {
+                button.setText(randomNumber.getUnicode()).setCallbackData(randomNumber.getValue() + user.getId().toString());
+            }
+            buttons.add(button);
+        }
+
         if (userName == null || userName.isEmpty()) {
             userName = String.format("[%s](tg://user?id=%s)",
                     user.getFirstName(),
                     user.getId());
-            reply.enableMarkdown(true);
-            reply.setText(userName + REPLY_MESSAGE);
+            reply.setText(String.format(propertiesService.getHelloMessage(), userName, controlNumber.getName(),
+                    propertiesService.getDeleteTimeout()));
         } else {
-            reply.setText("@" + userName + REPLY_MESSAGE);
+            userName = "@" + userName;
+            reply.setText(String.format(propertiesService.getHelloMessage(), userName, controlNumber.getName(),
+                    propertiesService.getDeleteTimeout()));
         }
 
-        // Prepare buttons
-        final InlineKeyboardButton button = new InlineKeyboardButton();
-        button.setText(BUTTON_MESSAGE).setCallbackData(getChatUserId(chatId, user.getId()));
-
-        // Prepare buttons row
-        final List<InlineKeyboardButton> buttons = new ArrayList<>();
-        buttons.add(button);
-
         // Prepare keyboard row
-        final List<List<InlineKeyboardButton>> keyboardRows = new ArrayList<>();
+        List<List<InlineKeyboardButton>> keyboardRows = new ArrayList<>();
         keyboardRows.add(buttons);
 
         // keyboard
-        final InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
+        InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
         keyboard.setKeyboard(keyboardRows);
         reply.setReplyMarkup(keyboard);
         return reply;
     }
 
-    private void removeScheduledTasks(final Long chatId, final Integer userId) {
-        LOG.info(String.format("Removing scheduled tasks for user id: %s in chat id: %s", userId, chatId));
-        final String timerKey = getChatUserId(chatId, userId);
-        if(!TIMERS.containsKey(timerKey)) {
-            LOG.error(String.format("Timers map doesn't contain key %s", timerKey));
+    private void removeScheduledTasks(Long chatId, Integer userId) {
+        LOG.info("Removing scheduled tasks for user id: [{}] in chat id: [{}]", userId, chatId);
+        String chatUserId = getChatUserId(chatId, userId);
+        if (!TIMERS_MAP.containsKey(chatUserId)) {
+            LOG.error("Timers map doesn't contain key [{}]", chatUserId);
             return;
         }
-        TIMERS.remove(timerKey).forEach(Timer::cancel);
+        TIMERS_MAP.remove(chatUserId).forEach(Timer::cancel);
     }
 
-    private void prepareDeleteUserTask(final Message message) {
-        final Integer userId = message.getNewChatMembers().get(0).getId();
-        final Long chatId = message.getChatId();
-        LOG.info(String.format("Preparing task to delete new user id: %s from chat id: %s", userId, chatId));
-        final DeleteUserTask deleteUserTask = new DeleteUserTask(chatId, userId);
-        final Timer deleteUserTimer = new Timer();
-        deleteUserTimer.schedule(deleteUserTask, DELETE_TIMEOUT);
-        final String timerKey = getChatUserId(chatId, userId);
-        if (TIMERS.containsKey(timerKey)) {
-            final List<Timer> timers = TIMERS.remove(timerKey);
+    private void prepareDeleteUserTask(Message message, Integer userId) {
+        Long chatId = message.getChatId();
+        LOG.info("Preparing task to delete new user id: [{}] from chat id: [{}]", userId, chatId);
+        DeleteUserTask deleteUserTask = new DeleteUserTask(chatId, userId, this);
+        Timer deleteUserTimer = new Timer();
+        deleteUserTimer.schedule(deleteUserTask, propertiesService.getDeleteTimeout() * 1000L);
+        String chatUserId = getChatUserId(chatId, userId);
+        if (TIMERS_MAP.containsKey(chatUserId)) {
+            List<Timer> timers = TIMERS_MAP.remove(chatUserId);
             timers.add(deleteUserTimer);
-            TIMERS.put(timerKey, timers);
+            TIMERS_MAP.put(chatUserId, timers);
         } else {
-            final List<Timer> timers = new ArrayList<>();
+            List<Timer> timers = new ArrayList<>();
             timers.add(deleteUserTimer);
-            TIMERS.put(timerKey, timers);
+            TIMERS_MAP.put(chatUserId, timers);
         }
     }
 
-    private void prepareDeleteMessageTask(final Message message, final Integer userId) {
-        LOG.info("Preparing task to delete message id: {}", message.getMessageId());
-        final Long chatId = message.getChatId();
-        final Integer messageId = message.getMessageId();
-        final DeleteMessageTask deleteMessageTask = new DeleteMessageTask(chatId, messageId);
-        final Timer deleteMessageTimer = new Timer();
-        deleteMessageTimer.schedule(deleteMessageTask, DELETE_TIMEOUT);
-        final String timerKey = getChatUserId(chatId, userId);
-        if (TIMERS.containsKey(timerKey)) {
-            final List<Timer> timers = TIMERS.remove(timerKey);
+    private void prepareDeleteMessageTask(Message message, Integer userId) {
+        LOG.info("Preparing task to delete message id: [{}] from user id: [{}]", message.getMessageId(), userId);
+        Long chatId = message.getChatId();
+        Integer messageId = message.getMessageId();
+        DeleteMessageTask deleteMessageTask = new DeleteMessageTask(chatId, messageId, this);
+        Timer deleteMessageTimer = new Timer();
+        deleteMessageTimer.schedule(deleteMessageTask, propertiesService.getDeleteTimeout() * 1000L);
+        String chatUserId = getChatUserId(chatId, userId);
+        if (TIMERS_MAP.containsKey(chatUserId)) {
+            List<Timer> timers = TIMERS_MAP.remove(chatUserId);
             timers.add(deleteMessageTimer);
-            TIMERS.put(timerKey, timers);
+            TIMERS_MAP.put(chatUserId, timers);
         } else {
-            final List<Timer> timers = new ArrayList<>();
+            List<Timer> timers = new ArrayList<>();
             timers.add(deleteMessageTimer);
-            TIMERS.put(timerKey, timers);
+            TIMERS_MAP.put(chatUserId, timers);
         }
     }
 
-    private void prepareUnbanningUserTask(final Long chatId, final Integer userId) {
-        LOG.info("Preparing task to unbanning user id: {}", userId);
-        final UnbanningUserTask unbanningUserTask = new UnbanningUserTask(chatId, userId);
-        final Timer unbanningUserTimer = new Timer();
-        unbanningUserTimer.schedule(unbanningUserTask, UNBANNING_TIMEOUT);
+    private void sendPrivateMessage(Long chatId, String text) {
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId);
+        message.setText(text);
+        try {
+            execute(message);
+        } catch (TelegramApiException e) {
+            LOG.error("Cannot send private message, chat id: [{}]", chatId);
+        }
     }
 
-    private String getChatUserId(final Long chatId, final Integer userId) {
+    private String getChatUserId(Long chatId, Integer userId) {
         return chatId + "_" + userId;
     }
 }
