@@ -6,18 +6,19 @@ import java.util.TimerTask;
 
 public class DeleteMessageTask extends TimerTask {
 
-    private Integer messageId;
+    private Integer userId;
     private Long chatId;
     private CheckUserBot checkUserBot;
 
-    public DeleteMessageTask(Long chatId, Integer messageId, CheckUserBot checkUserBot) {
-        this.messageId = messageId;
+    public DeleteMessageTask(Long chatId, Integer userId, CheckUserBot checkUserBot) {
+        this.userId = userId;
         this.chatId = chatId;
         this.checkUserBot = checkUserBot;
     }
 
     @Override
     public void run() {
-        checkUserBot.deleteMessage(chatId, messageId);
+        checkUserBot.deleteEntryMessage(chatId, userId);
+        checkUserBot.deleteReplyMessage(chatId, userId);
     }
 }
