@@ -39,7 +39,7 @@ public class PropertiesService {
     }
 
     public String getBotToken() {
-        String botToken = properties.getProperty("bot.token");
+        String botToken = System.getenv("TOKEN");
         if (botToken == null || botToken.isEmpty()) {
             LOG.fatal("Bot token cannot be null or empty");
             throw new IllegalArgumentException("Bot token cannot be null or empty");

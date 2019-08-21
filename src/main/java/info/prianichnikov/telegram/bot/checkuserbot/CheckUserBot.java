@@ -58,7 +58,7 @@ public class CheckUserBot extends TelegramLongPollingBot {
             return;
         }
 
-        // Leaving from non allowed chats
+        // Leaving non allowed chats
         String chatId = getChatId(update);
         if (!propertiesService.getAllowedChats().contains(chatId)) {
             String chatName = getChatName(update);
@@ -259,11 +259,9 @@ public class CheckUserBot extends TelegramLongPollingBot {
                     propertiesService.getDeleteTimeout()));
         }
 
-        // Prepare keyboard row
         List<List<InlineKeyboardButton>> keyboardRows = new ArrayList<>();
         keyboardRows.add(buttons);
 
-        // keyboard
         InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
         keyboard.setKeyboard(keyboardRows);
         reply.setReplyMarkup(keyboard);
