@@ -49,7 +49,7 @@ public class CheckUserBot extends TelegramLongPollingBot {
         }
 
         // Private messages
-        if (update.getMessage().getChat().isUserChat()) {
+        if (update.hasMessage() && update.getMessage().getChat().isUserChat()) {
             Message message = update.getMessage();
             User user = update.getMessage().getFrom();
             LOG.info("Private message: [{}] from id: [{}], userName [{}], firstName [{}], lastName: [{}]",
