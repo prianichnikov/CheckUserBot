@@ -6,11 +6,11 @@
 
     <groupId>info.prianichnikov.telegram.bot</groupId>
     <artifactId>checkuserbot</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.0</version>
 
     <properties>
-        <maven.compiler.source>1.8</maven.compiler.source>
-        <maven.compiler.target>1.8</maven.compiler.target>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
         <log4j.configurationFile>src/main/resources/log4j2.xml</log4j.configurationFile>
     </properties>
 
@@ -18,12 +18,12 @@
         <dependency>
             <groupId>org.telegram</groupId>
             <artifactId>telegrambots</artifactId>
-            <version>4.4.0.1</version>
+            <version>4.9</version>
         </dependency>
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-core</artifactId>
-            <version>2.11.0</version>
+            <version>2.13.3</version>
         </dependency>
     </dependencies>
 
