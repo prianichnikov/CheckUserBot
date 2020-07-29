@@ -182,11 +182,11 @@ public class CheckUserBot extends TelegramLongPollingBot {
         ENTRY_MESSAGES.put(chatUserId, entryMessage.getMessageId());
         REPLY_MESSAGES.put(chatUserId, repliedMessage.getMessageId());
 
-        DeleteMessageTask deleteMessageTask = new DeleteMessageTask(entryMessage.getChatId(), user.getId(), this);
+        DeleteMessageTask deleteMessageTask = new DeleteMessageTask(user.getId(), entryMessage.getChatId(), this);
         Timer deleteMessageTimer = new Timer();
         deleteMessageTimer.schedule(deleteMessageTask, propertiesService.getDeleteTimeout() * 1000L);
 
-        DeleteUserTask deleteUserTask = new DeleteUserTask(entryMessage.getChatId(), user.getId(), this);
+        DeleteUserTask deleteUserTask = new DeleteUserTask(user.getId(), entryMessage.getChatId(), this);
         Timer deleteUserTimer = new Timer();
         deleteUserTimer.schedule(deleteUserTask, propertiesService.getDeleteTimeout() * 1000L);
         if (TIMERS.containsKey(chatUserId)) {

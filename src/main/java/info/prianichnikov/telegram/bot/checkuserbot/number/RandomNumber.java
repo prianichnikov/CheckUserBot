@@ -1,7 +1,10 @@
 package info.prianichnikov.telegram.bot.checkuserbot.number;
 
+import lombok.AllArgsConstructor;
+
 import java.util.Arrays;
 
+@AllArgsConstructor
 public enum RandomNumber {
 
     ZERO    (0, "Ноль", "\u0030\u20E3"),
@@ -15,16 +18,10 @@ public enum RandomNumber {
     EIGHT   (8, "Восемь", "\u0038\u20E3"),
     NINE    (9, "Девять", "\u0039\u20E3");
 
-    private int value;
-    private String name;
-    private String unicode;
+    private final int value;
+    private final String name;
+    private final String unicode;
     
-    RandomNumber(int value, String name, String unicode) {
-        this.value = value;
-        this.name = name;
-        this.unicode = unicode;
-    }
-
     public static RandomNumber fromValue(int i) {
         return Arrays.stream(values())
                 .filter(v -> v.value == i)

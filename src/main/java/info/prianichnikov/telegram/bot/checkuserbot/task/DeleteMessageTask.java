@@ -1,20 +1,16 @@
 package info.prianichnikov.telegram.bot.checkuserbot.task;
 
 import info.prianichnikov.telegram.bot.checkuserbot.CheckUserBot;
+import lombok.AllArgsConstructor;
 
 import java.util.TimerTask;
 
+@AllArgsConstructor
 public class DeleteMessageTask extends TimerTask {
 
-    private Integer userId;
-    private Long chatId;
-    private CheckUserBot checkUserBot;
-
-    public DeleteMessageTask(Long chatId, Integer userId, CheckUserBot checkUserBot) {
-        this.userId = userId;
-        this.chatId = chatId;
-        this.checkUserBot = checkUserBot;
-    }
+    private final Integer userId;
+    private final Long chatId;
+    private final CheckUserBot checkUserBot;
 
     @Override
     public void run() {
