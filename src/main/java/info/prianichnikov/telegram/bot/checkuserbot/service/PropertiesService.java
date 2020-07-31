@@ -1,7 +1,6 @@
 package info.prianichnikov.telegram.bot.checkuserbot.service;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -10,10 +9,10 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Properties;
 
+@Slf4j
 public class PropertiesService {
 
     private final static String FILE_NAME = "/configuration.properties";
-    private final static Logger LOG = LogManager.getLogger(PropertiesService.class.getName());
     private final Properties properties = new Properties();
 
     public PropertiesService() {
@@ -25,7 +24,7 @@ public class PropertiesService {
                 PropertiesService.class.getResourceAsStream(FILE_NAME), StandardCharsets.UTF_8)) {
             properties.load(reader);
         } catch (IOException ex) {
-            LOG.error("Cannot load properties file");
+            log.error("Cannot load properties file");
             throw new RuntimeException("Cannot load properties file", ex);
         }
     }
@@ -41,7 +40,7 @@ public class PropertiesService {
     public String getBotToken() {
         String botToken = System.getenv("TOKEN");
         if (botToken == null || botToken.isEmpty()) {
-            LOG.fatal("Bot token cannot be null or empty");
+            log.error("Bot token cannot be null or empty");
             throw new IllegalArgumentException("Bot token cannot be null or empty");
         }
         return botToken;

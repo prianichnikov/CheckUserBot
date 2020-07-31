@@ -5,8 +5,7 @@ import info.prianichnikov.telegram.bot.checkuserbot.service.PropertiesService;
 import info.prianichnikov.telegram.bot.checkuserbot.service.RandomNumberService;
 import info.prianichnikov.telegram.bot.checkuserbot.task.DeleteMessageTask;
 import info.prianichnikov.telegram.bot.checkuserbot.task.DeleteUserTask;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import lombok.extern.slf4j.Slf4j;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.groupadministration.GetChatAdministrators;
 import org.telegram.telegrambots.meta.api.methods.groupadministration.KickChatMember;
@@ -24,9 +23,9 @@ import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 
+@Slf4j
 public class CheckUserBot extends TelegramLongPollingBot {
 
-    private static final Logger LOG = LogManager.getLogger(CheckUserBot.class.getName());
     private static final Map<String, List<Timer>> TIMERS = new HashMap<>();
     private static final Map<String, Integer> ENTRY_MESSAGES = new HashMap<>();
     private static final Map<String, Integer> REPLY_MESSAGES = new HashMap<>();
@@ -62,7 +61,7 @@ public class CheckUserBot extends TelegramLongPollingBot {
         String chatId = getChatId(update);
         if (!propertiesService.getAllowedChats().contains(chatId)) {
             String chatName = getChatName(update);
-            LOG.warn("Message from not allowed chat: [{}], id: [{}], leaving this chat", chatName, chatId);
+            log.warn("Message from not allowed chat: [{}], id: [{}], leaving this chat", chatName, chatId);
             leaveChat(chatId);
             return;
         }
@@ -71,7 +70,7 @@ public class CheckUserBot extends TelegramLongPollingBot {
         if (update.hasMessage() && ChronoUnit.MINUTES.between(
                 ZonedDateTime.ofInstant(Instant.ofEpochSecond(update.getMessage().getDate()), ZoneOffset.UTC),
                 ZonedDateTime.now(ZoneOffset.UTC)) > propertiesService.getMessageTimeoutMinutes()) {
-            LOG.warn("The message id [{}] was send more than {} minutes ago, ignore it",
+            log.warn("The message id [{}] was send more than {} minutes ago, ignore it",
                     update.getMessage().getMessageId(), propertiesService.getMessageTimeoutMinutes());
             return;
         }
@@ -104,7 +103,7 @@ public class CheckUserBot extends TelegramLongPollingBot {
         try {
             execute(leaveChat);
         } catch (TelegramApiException ex) {
-            LOG.error("Error leaving chat", ex);
+            log.error("Error leaving chat", ex);
         }
     }
 
@@ -133,36 +132,36 @@ public class CheckUserBot extends TelegramLongPollingBot {
 
         if (callbackData.contains(user.getId().toString())) {
             if (callbackData.equals(getChatUserId(chatId, user.getId()))) {
-                LOG.info("Answer is correct");
+                log.info("Answer is correct");
                 removeScheduledTasks(chatId, user.getId());
                 deleteReplyMessage(chatId, user.getId());
                 ENTRY_MESSAGES.remove(getChatUserId(chatId, user.getId()));
             } else {
-                LOG.info("Answer is wrong, kicking user");
+                log.info("Answer is wrong, kicking user");
                 removeScheduledTasks(chatId, user.getId());
                 deleteUser(chatId, user.getId());
                 deleteEntryMessage(chatId, user.getId());
                 deleteReplyMessage(chatId, user.getId());
             }
         } else {
-            LOG.info("Callback from wrong user id: [{}], name: [{}]", user.getId(), user.getUserName());
+            log.info("Callback from wrong user id: [{}], name: [{}]", user.getId(), user.getUserName());
         }
     }
 
     private void handleNewUserEvent(Message newUserMessage) {
         for (User newChatMember : newUserMessage.getNewChatMembers()) {
-            LOG.info("---===---");
-            LOG.info("New user id: [{}], login: [{}], first name: [{}], last name [{}], chat id: [{}], message id [{}]",
+            log.info("---===---");
+            log.info("New user id: [{}], login: [{}], first name: [{}], last name [{}], chat id: [{}], message id [{}]",
                     newChatMember.getId(), newChatMember.getUserName(), newChatMember.getFirstName(), newChatMember.getLastName(),
                     newUserMessage.getChatId(), newUserMessage.getMessageId());
 
             // Allow bots was added by admins
             if (newChatMember.getBot()) {
-                LOG.warn("User is bot!");
+                log.warn("User is bot!");
                 boolean isBotAddedByAdmin = getChatAdministrators(newUserMessage.getChatId()).stream()
                         .anyMatch(admin -> admin.getUser().getId().equals(newUserMessage.getFrom().getId()));
                 if (!isBotAddedByAdmin) {
-                    LOG.warn("Bot was added not by administrators, remove them from the chat");
+                    log.warn("Bot was added not by administrators, remove them from the chat");
                     deleteUser(newUserMessage.getChatId(), newChatMember.getId());
                 }
                 return;
@@ -172,7 +171,7 @@ public class CheckUserBot extends TelegramLongPollingBot {
                 Message repliedMessage = execute(replyMessage);
                 prepareDeleteTasks(newChatMember, newUserMessage, repliedMessage);
             } catch (TelegramApiException e) {
-                LOG.error("Cannot sent reply message", e);
+                log.error("Cannot sent reply message", e);
             }
         }
     }
@@ -209,13 +208,13 @@ public class CheckUserBot extends TelegramLongPollingBot {
         try {
             chatAdministrators = execute(chatAdministratorsRequest);
         } catch (TelegramApiException e) {
-            LOG.error("Cannot fetch administrators list from chat id: [{}]", chatId);
+            log.error("Cannot fetch administrators list from chat id: [{}]", chatId);
         }
         return chatAdministrators;
     }
 
     public void deleteUser(Long chatId, Integer userId) {
-        LOG.info("Delete user id: [{}] from chat id: [{}]", userId, chatId);
+        log.info("Delete user id: [{}] from chat id: [{}]", userId, chatId);
         KickChatMember kickChatMember = new KickChatMember();
         kickChatMember.setChatId(chatId);
         kickChatMember.setUserId(userId);
@@ -223,17 +222,17 @@ public class CheckUserBot extends TelegramLongPollingBot {
         try {
             execute(kickChatMember);
         } catch (TelegramApiException e) {
-            LOG.error("Cannot delete the user", e);
+            log.error("Cannot delete the user", e);
         }
     }
 
     public void deleteEntryMessage(Long chatId, Integer userId) {
-        LOG.info("Delete entry message from chat id: [{}] from user id: [{}]", chatId, userId);
+        log.info("Delete entry message from chat id: [{}] from user id: [{}]", chatId, userId);
         deleteMessage(chatId, ENTRY_MESSAGES.remove(getChatUserId(chatId, userId)));
     }
 
     public void deleteReplyMessage(Long chatId, Integer userId) {
-        LOG.info("Delete reply message from chat id: [{}] to user id: [{}]", chatId, userId);
+        log.info("Delete reply message from chat id: [{}] to user id: [{}]", chatId, userId);
         deleteMessage(chatId, REPLY_MESSAGES.remove(getChatUserId(chatId, userId)));
     }
 
@@ -244,7 +243,7 @@ public class CheckUserBot extends TelegramLongPollingBot {
         try {
             execute(deleteMessage);
         } catch (TelegramApiException e) {
-            LOG.error("Cannot delete the message", e);
+            log.error("Cannot delete the message", e);
         }
     }
 
@@ -292,10 +291,10 @@ public class CheckUserBot extends TelegramLongPollingBot {
     }
 
     private void removeScheduledTasks(Long chatId, Integer userId) {
-        LOG.info("Removing scheduled tasks for user id: [{}] in chat id: [{}]", userId, chatId);
+        log.info("Removing scheduled tasks for user id: [{}] in chat id: [{}]", userId, chatId);
         String chatUserId = getChatUserId(chatId, userId);
         if (!TIMERS.containsKey(chatUserId)) {
-            LOG.error("Timers map doesn't contain key [{}]", chatUserId);
+            log.error("Timers map doesn't contain key [{}]", chatUserId);
             return;
         }
         TIMERS.remove(chatUserId).forEach(Timer::cancel);
@@ -304,7 +303,7 @@ public class CheckUserBot extends TelegramLongPollingBot {
     private void handlePrivateMessage(Message message) {
         User user = message.getFrom();
         Long chatId = message.getChatId();
-        LOG.info("Private message: [{}] from id: [{}], userName [{}], firstName [{}], lastName: [{}]",
+        log.info("Private message: [{}] from id: [{}], userName [{}], firstName [{}], lastName: [{}]",
                 message.getText(), user.getId(), user.getUserName(), user.getFirstName(), user.getLastName());
 
         SendMessage sendMessage = new SendMessage();
@@ -313,7 +312,7 @@ public class CheckUserBot extends TelegramLongPollingBot {
         try {
             execute(sendMessage);
         } catch (TelegramApiException e) {
-            LOG.error("Cannot send private message, chat id: [{}]", chatId);
+            log.error("Cannot send private message, chat id: [{}]", chatId);
         }
     }
 
@@ -322,7 +321,7 @@ public class CheckUserBot extends TelegramLongPollingBot {
         Long chatId = message.getChatId();
         String chatUserId = getChatUserId(chatId, userId);
         if (TIMERS.containsKey(chatUserId)) {
-            LOG.info("Message from non verified user: [{}]", message.getText());
+            log.info("Message from non verified user: [{}]", message.getText());
             deleteMessage(chatId, message.getMessageId());
         }
     }

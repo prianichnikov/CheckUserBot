@@ -1,14 +1,12 @@
 package info.prianichnikov.telegram.bot.checkuserbot;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import lombok.extern.slf4j.Slf4j;
 import org.telegram.telegrambots.ApiContextInitializer;
 import org.telegram.telegrambots.meta.TelegramBotsApi;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiRequestException;
 
+@Slf4j
 public class CheckUserBotApplication {
-
-    private static final Logger LOG = LogManager.getLogger(CheckUserBotApplication.class.getName());
 
     public static void main(String[] args) {
 
@@ -16,9 +14,9 @@ public class CheckUserBotApplication {
         TelegramBotsApi api = new TelegramBotsApi();
         try {
             api.registerBot(new CheckUserBot());
-            LOG.info("Bot is online");
+            log.info("Bot is online");
         } catch (TelegramApiRequestException e) {
-            LOG.error("Error during registering bot", e);
+            log.error("Error during registering bot", e);
             throw new RuntimeException(e.getApiResponse());
         }
     }
