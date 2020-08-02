@@ -23,6 +23,8 @@ import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 
+import static info.prianichnikov.telegram.bot.checkuserbot.utils.ChatUtils.*;
+
 @Slf4j
 public class CheckUserBot extends TelegramLongPollingBot {
 
@@ -104,24 +106,6 @@ public class CheckUserBot extends TelegramLongPollingBot {
             execute(leaveChat);
         } catch (TelegramApiException ex) {
             log.error("Error leaving chat", ex);
-        }
-    }
-
-    private String getChatName(Update update) {
-        String chatName;
-        if (update.hasMessage()) {
-            chatName = update.getMessage().getChat().getTitle();
-        } else {
-            chatName = update.getCallbackQuery().getMessage().getChat().getTitle();
-        }
-        return chatName;
-    }
-
-    private String getChatId(Update update) {
-        if (update.hasMessage()) {
-            return update.getMessage().getChatId().toString();
-        } else {
-            return update.getCallbackQuery().getMessage().getChatId().toString();
         }
     }
 
@@ -326,7 +310,4 @@ public class CheckUserBot extends TelegramLongPollingBot {
         }
     }
 
-    private String getChatUserId(Long chatId, Integer userId) {
-        return chatId + "_" + userId;
-    }
 }

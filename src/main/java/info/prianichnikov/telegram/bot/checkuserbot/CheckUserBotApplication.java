@@ -17,7 +17,7 @@ public class CheckUserBotApplication {
             log.info("Bot is online");
         } catch (TelegramApiRequestException e) {
             log.error("Error during registering bot", e);
-            throw new RuntimeException(e.getApiResponse());
+            throw new RuntimeException(e);
         }
     }
 }
