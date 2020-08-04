@@ -2,6 +2,7 @@
 FROM openjdk:11.0.8-jdk as build
 COPY . /bot/
 WORKDIR /bot/
+RUN chmod +x ./mvnw
 RUN ./mvnw package
 
 # Prepare image stage
