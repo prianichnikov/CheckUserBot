@@ -17,9 +17,9 @@
         </rollingPolicy>
     </appender>
 
-    <logger name="org.apache.http.wire" level="DEBUG" additivity="false">
-        <appender-ref ref="HTTP_FILE"/>
-    </logger>
+<!--    <logger name="org.apache.http.wire" level="DEBUG" additivity="false">-->
+<!--        <appender-ref ref="HTTP_FILE"/>-->
+<!--    </logger>-->
 
     <root level="INFO">
         <appender-ref ref="STDOUT"/>

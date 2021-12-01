@@ -8,7 +8,7 @@ import java.util.TimerTask;
 @AllArgsConstructor
 public class DeleteUserTask extends TimerTask {
 
-    private final Integer userId;
+    private final Long userId;
     private final Long chatId;
     private final CheckUserBot checkUserBot;
 

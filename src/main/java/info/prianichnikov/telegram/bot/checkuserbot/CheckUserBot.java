@@ -12,7 +12,11 @@ import org.telegram.telegrambots.meta.api.methods.groupadministration.KickChatMe
 import org.telegram.telegrambots.meta.api.methods.groupadministration.LeaveChat;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage;
-import org.telegram.telegrambots.meta.api.objects.*;
+import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
+import org.telegram.telegrambots.meta.api.objects.Message;
+import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.api.objects.User;
+import org.telegram.telegrambots.meta.api.objects.chatmember.ChatMember;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
@@ -21,16 +25,20 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Timer;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static info.prianichnikov.telegram.bot.checkuserbot.utils.ChatUtils.*;
 
 @Slf4j
 public class CheckUserBot extends TelegramLongPollingBot {
 
-    private static final Map<String, List<Timer>> TIMERS = new HashMap<>();
-    private static final Map<String, Integer> ENTRY_MESSAGES = new HashMap<>();
-    private static final Map<String, Integer> REPLY_MESSAGES = new HashMap<>();
+    private static final Map<String, List<Timer>> TIMERS = new ConcurrentHashMap<>();
+    private static final Map<String, Integer> ENTRY_MESSAGES = new ConcurrentHashMap<>();
+    private static final Map<String, Integer> REPLY_MESSAGES = new ConcurrentHashMap<>();
 
     private final PropertiesService propertiesService = new PropertiesService();
     private final RandomNumberService randomNumberService = new RandomNumberService();
@@ -140,7 +148,7 @@ public class CheckUserBot extends TelegramLongPollingBot {
                     newUserMessage.getChatId(), newUserMessage.getMessageId());
 
             // Allow bots was added by admins
-            if (newChatMember.getBot()) {
+            if (newChatMember.getIsBot()) {
                 log.warn("User is bot!");
                 boolean isBotAddedByAdmin = getChatAdministrators(newUserMessage.getChatId()).stream()
                         .anyMatch(admin -> admin.getUser().getId().equals(newUserMessage.getFrom().getId()));
@@ -187,7 +195,7 @@ public class CheckUserBot extends TelegramLongPollingBot {
 
     private List<ChatMember> getChatAdministrators(Long chatId) {
         GetChatAdministrators chatAdministratorsRequest = new GetChatAdministrators();
-        chatAdministratorsRequest.setChatId(chatId);
+        chatAdministratorsRequest.setChatId(String.valueOf(chatId));
         List<ChatMember> chatAdministrators = new ArrayList<>();
         try {
             chatAdministrators = execute(chatAdministratorsRequest);
@@ -197,12 +205,13 @@ public class CheckUserBot extends TelegramLongPollingBot {
         return chatAdministrators;
     }
 
-    public void deleteUser(Long chatId, Integer userId) {
+    public void deleteUser(Long chatId, Long userId) {
         log.info("Delete user id: [{}] from chat id: [{}]", userId, chatId);
         KickChatMember kickChatMember = new KickChatMember();
-        kickChatMember.setChatId(chatId);
+        kickChatMember.setChatId(String.valueOf(chatId));
         kickChatMember.setUserId(userId);
-        kickChatMember.setUntilDate(ZonedDateTime.now().plusSeconds(propertiesService.getUnBanTimeoutSecond()).toInstant());
+        kickChatMember.setUntilDate(Long.valueOf(
+                ZonedDateTime.now().plusSeconds(propertiesService.getUnBanTimeoutSecond()).toEpochSecond()).intValue());
         try {
             execute(kickChatMember);
         } catch (TelegramApiException e) {
@@ -210,19 +219,19 @@ public class CheckUserBot extends TelegramLongPollingBot {
         }
     }
 
-    public void deleteEntryMessage(Long chatId, Integer userId) {
+    public void deleteEntryMessage(Long chatId, Long userId) {
         log.info("Delete entry message from chat id: [{}] from user id: [{}]", chatId, userId);
         deleteMessage(chatId, ENTRY_MESSAGES.remove(getChatUserId(chatId, userId)));
     }
 
-    public void deleteReplyMessage(Long chatId, Integer userId) {
+    public void deleteReplyMessage(Long chatId, Long userId) {
         log.info("Delete reply message from chat id: [{}] to user id: [{}]", chatId, userId);
         deleteMessage(chatId, REPLY_MESSAGES.remove(getChatUserId(chatId, userId)));
     }
 
     private void deleteMessage(Long chatId, Integer messageId) {
         DeleteMessage deleteMessage = new DeleteMessage();
-        deleteMessage.setChatId(chatId);
+        deleteMessage.setChatId(String.valueOf(chatId));
         deleteMessage.setMessageId(messageId);
         try {
             execute(deleteMessage);
@@ -234,10 +243,9 @@ public class CheckUserBot extends TelegramLongPollingBot {
     private SendMessage prepareReplyMessage(Message message, User user) {
         SendMessage reply = new SendMessage();
         Long chatId = message.getChatId();
-        reply.setChatId(chatId);
+        reply.setChatId(String.valueOf(chatId));
         reply.setReplyToMessageId(message.getMessageId());
         reply.enableMarkdown(true);
-        String userName = user.getUserName();
 
         List<InlineKeyboardButton> buttons = new ArrayList<>();
         List<RandomNumber> randomNumbers = randomNumberService.getRandomNumbers();
@@ -246,25 +254,25 @@ public class CheckUserBot extends TelegramLongPollingBot {
         for (RandomNumber randomNumber : randomNumbers) {
             InlineKeyboardButton button = new InlineKeyboardButton();
             if (randomNumber.equals(controlNumber)) {
-                button.setText(randomNumber.getUnicode()).setCallbackData(getChatUserId(chatId, user.getId()));
+                button.setText(randomNumber.getUnicode());
+                button.setCallbackData(getChatUserId(chatId, user.getId()));
             } else {
-                button.setText(randomNumber.getUnicode()).setCallbackData(randomNumber.getValue() + user.getId().toString());
+                button.setText(randomNumber.getUnicode());
+                button.setCallbackData(randomNumber.getValue() + user.getId().toString());
             }
             buttons.add(button);
         }
 
-        if (userName == null || userName.isEmpty()) {
-            userName = String.format("[%s](tg://user?id=%s)",
-                    user.getFirstName(),
-                    user.getId());
-            reply.setText(String.format(propertiesService.getHelloMessage(), userName, controlNumber.getName(),
-                    propertiesService.getDeleteTimeout()));
+        String userName;
+        if (user.getUserName() == null || user.getUserName().isBlank()) {
+            userName = user.getFirstName().concat(" ").concat(user.getLastName());
         } else {
-            userName = "@" + userName;
-            reply.setText(String.format(propertiesService.getHelloMessage(), userName, controlNumber.getName(),
-                    propertiesService.getDeleteTimeout()));
+            userName = user.getUserName();
         }
 
+        userName = String.format("[%s](tg://user?id=%s)", userName, user.getId());
+        reply.setText(String.format(propertiesService.getHelloMessage(), userName, controlNumber.getName(),
+                propertiesService.getDeleteTimeout()));
         List<List<InlineKeyboardButton>> keyboardRows = new ArrayList<>();
         keyboardRows.add(buttons);
 
@@ -274,7 +282,7 @@ public class CheckUserBot extends TelegramLongPollingBot {
         return reply;
     }
 
-    private void removeScheduledTasks(Long chatId, Integer userId) {
+    private void removeScheduledTasks(Long chatId, Long userId) {
         log.info("Removing scheduled tasks for user id: [{}] in chat id: [{}]", userId, chatId);
         String chatUserId = getChatUserId(chatId, userId);
         if (!TIMERS.containsKey(chatUserId)) {
@@ -291,7 +299,7 @@ public class CheckUserBot extends TelegramLongPollingBot {
                 message.getText(), user.getId(), user.getUserName(), user.getFirstName(), user.getLastName());
 
         SendMessage sendMessage = new SendMessage();
-        sendMessage.setChatId(chatId);
+        sendMessage.setChatId(String.valueOf(chatId));
         sendMessage.setText(propertiesService.getPrivateMessage());
         try {
             execute(sendMessage);
@@ -301,7 +309,7 @@ public class CheckUserBot extends TelegramLongPollingBot {
     }
 
     private void deleteNonVerifiedUserMessages(Message message) {
-        Integer userId = message.getFrom().getId();
+        Long userId = message.getFrom().getId();
         Long chatId = message.getChatId();
         String chatUserId = getChatUserId(chatId, userId);
         if (TIMERS.containsKey(chatUserId)) {

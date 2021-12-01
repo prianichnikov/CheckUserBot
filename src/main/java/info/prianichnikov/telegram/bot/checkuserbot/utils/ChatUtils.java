@@ -24,7 +24,7 @@ public class ChatUtils {
         }
     }
 
-    public static String getChatUserId(Long chatId, Integer userId) {
+    public static String getChatUserId(Long chatId, Long userId) {
         return chatId + "_" + userId;
     }
 }
