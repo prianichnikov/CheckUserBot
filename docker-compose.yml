@@ -1,0 +1,8 @@
+version: "3.3"
+services:
+  checkuserbot:
+    container_name: checkuserbot
+    image: prianichnikov/checkuserbot:latest
+    environment:
+      - TOKEN=<TELEGRAM BOT TOKEN>
+    restart: on-failure:3

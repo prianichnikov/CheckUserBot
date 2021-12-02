@@ -265,7 +265,7 @@ public class CheckUserBot extends TelegramLongPollingBot {
 
         String userName;
         if (user.getUserName() == null || user.getUserName().isBlank()) {
-            userName = user.getFirstName().concat(" ").concat(user.getLastName());
+            userName = user.getFirstName() + " " + user.getLastName();
         } else {
             userName = user.getUserName();
         }
