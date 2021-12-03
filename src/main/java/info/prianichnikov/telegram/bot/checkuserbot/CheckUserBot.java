@@ -31,6 +31,7 @@ import java.util.Map;
 import java.util.Timer;
 import java.util.concurrent.ConcurrentHashMap;
 
+import static com.google.common.base.Strings.isNullOrEmpty;
 import static info.prianichnikov.telegram.bot.checkuserbot.utils.ChatUtils.*;
 
 @Slf4j
@@ -263,14 +264,7 @@ public class CheckUserBot extends TelegramLongPollingBot {
             buttons.add(button);
         }
 
-        String userName;
-        if (user.getUserName() == null || user.getUserName().isBlank()) {
-            userName = user.getFirstName() + " " + user.getLastName();
-        } else {
-            userName = user.getUserName();
-        }
-
-        userName = String.format("[%s](tg://user?id=%s)", userName, user.getId());
+        String userName = String.format("[%s](tg://user?id=%s)", getUserName(user), user.getId());
         reply.setText(String.format(propertiesService.getHelloMessage(), userName, controlNumber.getName(),
                 propertiesService.getDeleteTimeout()));
         List<List<InlineKeyboardButton>> keyboardRows = new ArrayList<>();
@@ -280,6 +274,12 @@ public class CheckUserBot extends TelegramLongPollingBot {
         keyboard.setKeyboard(keyboardRows);
         reply.setReplyMarkup(keyboard);
         return reply;
+    }
+
+    private String getUserName(User user) {
+        return isNullOrEmpty(user.getLastName())
+                ? user.getFirstName()
+                : user.getFirstName() + " " + user.getUserName();
     }
 
     private void removeScheduledTasks(Long chatId, Long userId) {
