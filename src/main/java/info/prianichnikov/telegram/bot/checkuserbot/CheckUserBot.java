@@ -7,8 +7,8 @@ import info.prianichnikov.telegram.bot.checkuserbot.task.DeleteMessageTask;
 import info.prianichnikov.telegram.bot.checkuserbot.task.DeleteUserTask;
 import lombok.extern.slf4j.Slf4j;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
+import org.telegram.telegrambots.meta.api.methods.groupadministration.BanChatMember;
 import org.telegram.telegrambots.meta.api.methods.groupadministration.GetChatAdministrators;
-import org.telegram.telegrambots.meta.api.methods.groupadministration.KickChatMember;
 import org.telegram.telegrambots.meta.api.methods.groupadministration.LeaveChat;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage;
@@ -208,13 +208,14 @@ public class CheckUserBot extends TelegramLongPollingBot {
 
     public void deleteUser(Long chatId, Long userId) {
         log.info("Delete user id: [{}] from chat id: [{}]", userId, chatId);
-        KickChatMember kickChatMember = new KickChatMember();
-        kickChatMember.setChatId(String.valueOf(chatId));
-        kickChatMember.setUserId(userId);
-        kickChatMember.setUntilDate(Long.valueOf(
-                ZonedDateTime.now().plusSeconds(propertiesService.getUnBanTimeoutSecond()).toEpochSecond()).intValue());
+        BanChatMember banChatMember = BanChatMember.builder()
+                .chatId(String.valueOf(chatId))
+                .userId(userId)
+                .untilDate(Long.valueOf(ZonedDateTime.now()
+                        .plusSeconds(propertiesService.getUnBanTimeoutSecond()).toEpochSecond()).intValue()
+                ).build();
         try {
-            execute(kickChatMember);
+            execute(banChatMember);
         } catch (TelegramApiException e) {
             log.error("Cannot delete the user", e);
         }
@@ -279,7 +280,7 @@ public class CheckUserBot extends TelegramLongPollingBot {
     private String getUserName(User user) {
         return isNullOrEmpty(user.getLastName())
                 ? user.getFirstName()
-                : user.getFirstName() + " " + user.getUserName();
+                : user.getFirstName() + " " + user.getLastName();
     }
 
     private void removeScheduledTasks(Long chatId, Long userId) {
